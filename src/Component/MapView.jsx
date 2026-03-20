@@ -2,6 +2,7 @@ import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents }
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { getSignals, getAllLocations, updateAmbulanceLocation } from "../Services/Api";
+import HospitalSidebar from "./HospitalSidebar";
 import { HOSPITALS } from "../Data/hospitals";
 import L from "leaflet";
 import "leaflet-routing-machine";
@@ -146,10 +147,6 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
   const [ambulances, setAmbulances] = useState([]);
   const [destination, setDestination] = useState(null);
 
-  // States for Hospital Search Autocomplete
-  const [searchQuery, setSearchQuery] = useState("");
-
-
   // Default center point when loading
   const defaultCenter = [11.916242, 79.809547];
 
@@ -210,233 +207,99 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
 
   const handleHospitalSelect = (h) => {
     setDestination({ lat: h.lat, lon: h.lon, name: h.name });
-    setSearchQuery(h.name);
   };
 
-  const filteredHospitals = HOSPITALS.filter(h => {
-    const words = searchQuery.toLowerCase().trim().split(/\s+/);
-    const name = h.name.toLowerCase();
-    return words.every(word => name.includes(word));
-  });
-
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 180px)", width: "100%", background: "#0f1117", overflow: "hidden" }}>
-      {/* Map Content Wrapper */}
-      <div style={{ flex: 1, padding: "16px", display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ flex: 1, position: "relative", borderRadius: "16px", overflow: "hidden" }}>
-          {/* Dashboard GPS Controls */}
-          <div style={{
-            position: "absolute",
-            top: "20px",
-            left: "20px",
-            zIndex: 1000,
-            display: "flex",
-            gap: "10px",
-            pointerEvents: "auto"
-          }}>
-            <button
-              onClick={() => setIsGpsOn(!isGpsOn)}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "12px",
-                border: "none",
-                background: isGpsOn ? "#2ecc71" : "#34495e",
-                color: "white",
-                fontWeight: "600",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
-                transition: "all 0.3s ease"
-              }}
-            >
-              <span style={{
-                width: "10px",
-                height: "10px",
-                borderRadius: "50%",
-                background: isGpsOn ? "#fff" : "#95a5a6",
-                boxShadow: isGpsOn ? "0 0 10px #fff" : "none",
-                animation: isGpsOn ? "pulse 1.5s infinite" : "none"
-              }}></span>
-              {isGpsOn ? "GPS: ON" : "GPS: OFF"}
-            </button>
+    <div style={{ height: "calc(100vh - 180px)", width: "100%", background: "#0f1117", overflow: "hidden", padding: "16px" }}>
+      <div style={{ height: "100%", width: "100%", borderRadius: "16px", overflow: "hidden", border: "1px solid rgba(255, 255, 255, 0.1)" }}>
+        <MapContainer center={defaultCenter} zoom={13} style={{ height: "100%", width: "100%" }}>
+          <TileLayer
+            attribution="OpenStreetMap"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
 
-            {isGpsOn && (
-              <div style={{
-                background: "rgba(15, 17, 23, 0.8)",
-                backdropFilter: "blur(8px)",
-                padding: "10px 15px",
-                borderRadius: "12px",
-                color: "#94a3b8",
-                fontSize: "13px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                display: "flex",
-                alignItems: "center"
-              }}>
-                ID: <strong style={{ color: "#fff", marginLeft: "5px" }}>{myDeviceId}</strong>
-              </div>
-            )}
-          </div>
+          <MapUpdater isGpsOn={isGpsOn} myGeoLocation={myGeoLocation} />
 
-          <MapContainer center={defaultCenter} zoom={13} style={{ height: "100%", width: "100%" }}>
-            <TileLayer
-              attribution="OpenStreetMap"
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+          <MapClickMarker destination={destination} onSelectHospital={handleHospitalSelect} />
 
-            <MapUpdater isGpsOn={isGpsOn} myGeoLocation={myGeoLocation} />
-
-            <MapClickMarker destination={destination} onSelectHospital={handleHospitalSelect} />
-
-            {(() => {
-              const myAmbulance = ambulances.find((amb) => amb.vehicleNumber === myDeviceId);
-              const sourceLat = (isGpsOn && myGeoLocation) ? myGeoLocation.lat : (myAmbulance ? Number(myAmbulance.latitude) : myGeoLocation?.lat);
-              const sourceLon = (isGpsOn && myGeoLocation) ? myGeoLocation.lon : (myAmbulance ? Number(myAmbulance.longitude) : myGeoLocation?.lon);
-              if (sourceLat && sourceLon && destination) {
-                return (
-                  <RoutingControl
-                    sourceLat={sourceLat}
-                    sourceLon={sourceLon}
-                    destLat={destination.lat}
-                    destLon={destination.lon}
-                  />
-                );
-              }
-              return null;
-            })()}
-
-            {(() => {
-              const myAmb = ambulances.find(a => a.vehicleNumber === myDeviceId);
-              const pos = (isGpsOn && myGeoLocation)
-                ? [myGeoLocation.lat, myGeoLocation.lon]
-                : (myAmb ? [Number(myAmb.latitude), Number(myAmb.longitude)] : null);
-
-              if (!pos) return null;
-
+          {(() => {
+            const myAmbulance = ambulances.find((amb) => amb.vehicleNumber === myDeviceId);
+            const sourceLat = (isGpsOn && myGeoLocation) ? myGeoLocation.lat : (myAmbulance ? Number(myAmbulance.latitude) : myGeoLocation?.lat);
+            const sourceLon = (isGpsOn && myGeoLocation) ? myGeoLocation.lon : (myAmbulance ? Number(myAmbulance.longitude) : myGeoLocation?.lon);
+            if (sourceLat && sourceLon && destination) {
               return (
-                <Marker position={pos} icon={makeAmbulanceIcon(true, isGpsOn || (myAmb?.isOnline))}>
-                  <Tooltip permanent direction="top" offset={[0, -40]} className="marker-tooltip">
-                    <strong>{myDeviceId}</strong> (YOU)
-                  </Tooltip>
-                  <Popup>
-                    🚑 <strong>{myDeviceId}</strong> <span style={{ color: "#3498db" }}> (YOU)</span>
-                    <br />
-                    {isGpsOn ? "📡 Live Accuracy Mode" : (myAmb?.isOnline ? "🕐 Active (Reporting from DB)" : "📵 Offline (Last reported position)")}
-                    <br />
-                    Speed: {( (isGpsOn && myGeoLocation ? myGeoLocation.speed : (myAmb ? myAmb.speed : 0)) * 3.6).toFixed(1)} km/h
-                  </Popup>
-                </Marker>
+                <RoutingControl
+                  sourceLat={sourceLat}
+                  sourceLon={sourceLon}
+                  destLat={destination.lat}
+                  destLon={destination.lon}
+                />
               );
-            })()}
+            }
+            return null;
+          })()}
 
-            {/* Show Other Ambulances */}
-            {ambulances
-              .filter((amb) => amb.vehicleNumber !== myDeviceId)
-              .map((amb) => (
-                <Marker
-                  key={amb.vehicleNumber}
-                  position={[Number(amb.latitude), Number(amb.longitude)]}
-                  icon={makeAmbulanceIcon(false, amb.isOnline)}
-                >
-                  <Tooltip permanent direction="top" offset={[0, -40]} className="marker-tooltip">
-                    <strong>{amb.vehicleNumber}</strong>
-                  </Tooltip>
-                  <Popup>
-                    🚑 <strong>{amb.vehicleNumber}</strong>
-                    <br />
-                    Speed: {(Number(amb.speed) * 3.6).toFixed(1)} km/h
-                    <br />
-                    {amb.isOnline ? "🕐 Active" : "📵 Offline (Last seen)"}
-                  </Popup>
-                </Marker>
-              ))}
+          {(() => {
+            const myAmb = ambulances.find(a => a.vehicleNumber === myDeviceId);
+            const pos = (isGpsOn && myGeoLocation)
+              ? [myGeoLocation.lat, myGeoLocation.lon]
+              : (myAmb ? [Number(myAmb.latitude), Number(myAmb.longitude)] : null);
 
-            {signals.map((signal) => (
-              <Marker
-                key={`sig-${signal.id}`}
-                position={[signal.latitude, signal.longitude]}
-                icon={signalIcon}
-              >
+            if (!pos) return null;
+
+            return (
+              <Marker position={pos} icon={makeAmbulanceIcon(true, isGpsOn || (myAmb?.isOnline))}>
+                <Tooltip permanent direction="top" offset={[0, -40]} className="marker-tooltip">
+                  <strong>{myDeviceId}</strong> (YOU)
+                </Tooltip>
                 <Popup>
-                  🚦 <strong>{signal.signalName}</strong>
+                  🚑 <strong>{myDeviceId}</strong> <span style={{ color: "#3498db" }}> (YOU)</span>
                   <br />
-                  Status: {signal.status}
+                  {isGpsOn ? "📡 Live Accuracy Mode" : (myAmb?.isOnline ? "🕐 Active (Reporting from DB)" : "📵 Offline (Last reported position)")}
+                  <br />
+                  Speed: {( (isGpsOn && myGeoLocation ? myGeoLocation.speed : (myAmb ? myAmb.speed : 0)) * 3.6).toFixed(1)} km/h
+                </Popup>
+              </Marker>
+            );
+          })()}
+
+          {/* Show Other Ambulances */}
+          {ambulances
+            .filter((amb) => amb.vehicleNumber !== myDeviceId)
+            .map((amb) => (
+              <Marker
+                key={amb.vehicleNumber}
+                position={[Number(amb.latitude), Number(amb.longitude)]}
+                icon={makeAmbulanceIcon(false, amb.isOnline)}
+              >
+                <Tooltip permanent direction="top" offset={[0, -40]} className="marker-tooltip">
+                  <strong>{amb.vehicleNumber}</strong>
+                </Tooltip>
+                <Popup>
+                  🚑 <strong>{amb.vehicleNumber}</strong>
+                  <br />
+                  Speed: {(Number(amb.speed) * 3.6).toFixed(1)} km/h
+                  <br />
+                  {amb.isOnline ? "🕐 Active" : "📵 Offline (Last seen)"}
                 </Popup>
               </Marker>
             ))}
-          </MapContainer>
-        </div>
+
+          {signals.map((signal) => (
+            <Marker
+              key={`sig-${signal.id}`}
+              position={[signal.latitude, signal.longitude]}
+              icon={signalIcon}
+            >
+              <Popup>
+                🚦 <strong>{signal.signalName}</strong>
+                <br />
+                Status: {signal.status}
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
       </div>
-
-      {/* Right-side Hospital Sidebar */}
-      <aside className="hospital-sidebar">
-        <div className="hospital-sidebar-header">
-          <h3>
-            <span>🏥</span> Hospital Finder
-          </h3>
-          <p className="hospital-count">{filteredHospitals.length} hospitals found</p>
-          <div className="hospital-search-box">
-            <span className="search-icon-inside">🔍</span>
-            <input
-              type="text"
-              placeholder="Search hospital name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="hospital-list">
-          {filteredHospitals.map((h) => {
-            const myAmbulance = ambulances.find((amb) => amb.vehicleNumber === myDeviceId);
-            const sourceLat = myAmbulance ? Number(myAmbulance.latitude) : myGeoLocation?.lat;
-            const sourceLon = myAmbulance ? Number(myAmbulance.longitude) : myGeoLocation?.lon;
-            const dist = (sourceLat && sourceLon) ? getDistance(sourceLat, sourceLon, h.lat, h.lon) : null;
-
-            return (
-              <div
-                key={h.id}
-                className={`hospital-item ${destination?.lat === h.lat && destination?.lon === h.lon ? "active" : ""}`}
-                onClick={() => handleHospitalSelect(h)}
-              >
-                <div className="hospital-item-name">{h.name}</div>
-                <div className="hospital-item-details">
-                  {dist !== null && (
-                    <span className="hospital-item-distance">
-                      📍 {dist.toFixed(1)} km away
-                    </span>
-                  )}
-                  <span>ID: {h.id}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {destination && (
-          <div className="selected-hospital-info">
-            <h4>Selected Destination</h4>
-            <div style={{ color: "#e2e8f0", fontSize: "14px", fontWeight: "600" }}>{destination.name}</div>
-            <div className="route-actions">
-              <button
-                className="btn-outline"
-                onClick={() => {
-                  setDestination(null);
-                  setSearchQuery("");
-                }}
-              >
-                Clear
-              </button>
-              <button className="btn-primary" onClick={() => {
-                // Potential action like "Start Navigation" or just zoom to point
-              }}>
-                Navigate
-              </button>
-            </div>
-          </div>
-        )}
-      </aside>
     </div>
   );
 }
