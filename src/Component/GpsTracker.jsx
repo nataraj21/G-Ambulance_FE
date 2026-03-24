@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { updateAmbulanceLocation, getAllLocations } from "../Services/Api";
 import HospitalSidebar from "./HospitalSidebar";
 
-function GpsTracker({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
+function GpsTracker({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId, destination, setDestination }) {
   const [ambulances, setAmbulances] = useState([]);
-  const [destination, setDestination] = useState(null);
-  const status = !isGpsOn ? "❌ GPS Tracker is OFF" : (myGeoLocation ? "✅ Live GPS Active" : "📡 Connecting to GPS satellites...");
+  const status = !isGpsOn ? "❌ GPS Tracker is OFF" : (myGeoLocation ? "✅ Live GPS (1s history log)" : "📡 Connecting to GPS satellites...");
 
   // Fetch all ambulances so HospitalSidebar can calculate distances
   useEffect(() => {
@@ -18,7 +17,7 @@ function GpsTracker({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
     };
 
     fetchAmbulances();
-    const interval = setInterval(fetchAmbulances, 5000);
+    const interval = setInterval(fetchAmbulances, 1000); // Pulse every 1s
     return () => clearInterval(interval);
   }, []);
 
