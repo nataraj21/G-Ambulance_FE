@@ -1,6 +1,7 @@
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
 import { useEffect, useState, useRef } from "react";
-import { getAllLocations } from "../Services/Api";
+import { getAllLocations, seedMockData } from "../Services/Api";
+import RoutingControl from "./RoutingControl";
 import L from "leaflet";
 
 // Icons for different devices
@@ -42,15 +43,33 @@ function FitBounds({ devices }) {
     return null;
 }
 
+function MapCenter({ selectedDevice }) {
+    const map = useMap();
+    useEffect(() => {
+        if (selectedDevice) {
+            map.flyTo([Number(selectedDevice.latitude), Number(selectedDevice.longitude)], 15);
+        }
+    }, [selectedDevice, map]);
+    return null;
+}
+
 function AllGpsDevices() {
     const [devices, setDevices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
+    const [isSeeding, setIsSeeding] = useState(false);
+    const [selectedVehicleNumber, setSelectedVehicleNumber] = useState(null);
     const myDeviceId = localStorage.getItem("gps_device_id");
 
     const fetchDevices = () => {
         getAllLocations()
             .then((res) => {
+                if (!Array.isArray(res.data)) {
+                    console.error("AllGpsDevices API returned non-array data:", res.data);
+                    setDevices([]);
+                    setLoading(false);
+                    return;
+                }
                 const latestMap = new Map();
                 res.data.forEach((device) => {
                     const existing = latestMap.get(device.vehicleNumber);
@@ -63,13 +82,23 @@ function AllGpsDevices() {
                     }
                 });
 
+                console.log("Fetched devices:", res.data);
                 setDevices(Array.from(latestMap.values()).sort((a, b) => a.vehicleNumber.localeCompare(b.vehicleNumber)));
                 setLastUpdated(new Date());
                 setLoading(false);
+            });
+    };
+
+    const handleSeedData = () => {
+        setIsSeeding(true);
+        seedMockData()
+            .then(() => {
+                fetchDevices();
+                setTimeout(() => setIsSeeding(false), 2000);
             })
             .catch((err) => {
-                console.error("Failed to fetch GPS devices:", err);
-                setLoading(false);
+                console.error("Failed to seed data:", err);
+                setIsSeeding(false);
             });
     };
 
@@ -87,6 +116,8 @@ function AllGpsDevices() {
         return (now - new Date(timeStr)) < 30000;
     }).length;
 
+    const selectedDevice = devices.find(d => d.vehicleNumber === selectedVehicleNumber);
+
     return (
         <div className="all-gps-screen">
             {/* Header */}
@@ -102,6 +133,25 @@ function AllGpsDevices() {
                             Updated: {lastUpdated.toLocaleTimeString()}
                         </span>
                     )}
+                    <button
+                        onClick={handleSeedData}
+                        disabled={isSeeding}
+                        className="seed-data-btn"
+                        style={{
+                            padding: "6px 12px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            borderRadius: "6px",
+                            border: "none",
+                            backgroundColor: isSeeding ? "#718096" : "#3498db",
+                            color: "white",
+                            cursor: isSeeding ? "not-allowed" : "pointer",
+                            marginLeft: "12px",
+                            transition: "all 0.2s"
+                        }}
+                    >
+                        {isSeeding ? "⌛ Seeding..." : "➕ Seed Demo Data"}
+                    </button>
                 </div>
             </div>
 
@@ -115,7 +165,7 @@ function AllGpsDevices() {
                         <div className="no-devices">No active GPS devices found</div>
                     ) : (
                         <div className="device-list">
-                            {devices.map((device, index) => {
+                            {Array.isArray(devices) && devices.map((device, index) => {
                                 const isMe = device.vehicleNumber === myDeviceId;
                                 // offline if last update > 30 seconds ago
                                 const timeStr = (device.updatedTime && !device.updatedTime.includes("Z") && !device.updatedTime.includes("+")) ? device.updatedTime + "Z" : device.updatedTime;
@@ -124,8 +174,14 @@ function AllGpsDevices() {
                                 return (
                                     <div
                                         key={device.id}
-                                        className={`device-card ${isMe ? "device-card-me" : ""} ${!isOnline ? "device-card-offline" : ""}`}
-                                        style={!isOnline ? { opacity: 0.6 } : {}}
+                                        className={`device-card ${isMe ? "device-card-me" : ""} ${!isOnline ? "device-card-offline" : ""} ${selectedVehicleNumber === device.vehicleNumber ? "active" : ""}`}
+                                        style={{
+                                            opacity: !isOnline ? 0.6 : 1,
+                                            cursor: "pointer",
+                                            borderLeft: selectedVehicleNumber === device.vehicleNumber ? "4px solid #3498db" : "4px solid transparent",
+                                            background: selectedVehicleNumber === device.vehicleNumber ? "rgba(52, 152, 219, 0.1)" : ""
+                                        }}
+                                        onClick={() => setSelectedVehicleNumber(device.vehicleNumber)}
                                     >
                                         <div className="device-card-top">
                                             <div
@@ -146,6 +202,11 @@ function AllGpsDevices() {
                                         <div className="device-speed">
                                             🏃 Speed: {(Number(device.speed) * 3.6).toFixed(1)} km/h
                                         </div>
+                                        {device.destinationName && (
+                                            <div className="device-destination" style={{ color: "#3498db", fontSize: "12px", marginTop: "4px", fontWeight: "600" }}>
+                                                🏥 Destination: {device.destinationName}
+                                            </div>
+                                        )}
                                         <div className="device-time">
                                             🕐 {isOnline ? 'Online now' : `Last seen: ${new Date(device.updatedTime).toLocaleTimeString()}`}
                                         </div>
@@ -168,7 +229,18 @@ function AllGpsDevices() {
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
                         {devices.length > 0 && <FitBounds devices={devices} />}
-                        {devices.map((device, index) => {
+                        {selectedDevice && <MapCenter selectedDevice={selectedDevice} />}
+
+                        {selectedDevice && selectedDevice.destinationLatitude && selectedDevice.destinationLongitude && (
+                            <RoutingControl
+                                sourceLat={selectedDevice.latitude}
+                                sourceLon={selectedDevice.longitude}
+                                destLat={selectedDevice.destinationLatitude}
+                                destLon={selectedDevice.destinationLongitude}
+                            />
+                        )}
+
+                        {Array.isArray(devices) && devices.map((device, index) => {
                             const timeStr = (device.updatedTime && !device.updatedTime.includes("Z") && !device.updatedTime.includes("+")) ? device.updatedTime + "Z" : device.updatedTime;
                             const isOnline = (now - new Date(timeStr)) < 30000;
                             return (
@@ -193,6 +265,12 @@ function AllGpsDevices() {
                                             📍 {Number(device.latitude).toFixed(6)}, {Number(device.longitude).toFixed(6)}
                                             <br />
                                             🏃 {(Number(device.speed) * 3.6).toFixed(1)} km/h
+                                            {device.destinationName && (
+                                                <>
+                                                    <br />
+                                                    🏥 <strong>To: {device.destinationName}</strong>
+                                                </>
+                                            )}
                                             <br />
                                             🕐 {isOnline ? 'Active' : `Last updated: ${new Date(device.updatedTime).toLocaleTimeString()}`}
                                         </div>

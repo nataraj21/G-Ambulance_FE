@@ -5,8 +5,7 @@ import { getSignals, getAllLocations, updateAmbulanceLocation } from "../Service
 import HospitalSidebar from "./HospitalSidebar";
 import { HOSPITALS } from "../Data/hospitals";
 import L from "leaflet";
-import "leaflet-routing-machine";
-import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
+import RoutingControl from "./RoutingControl";
 
 // Helper to calculate distance between two points (in km)
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -82,70 +81,10 @@ function MapUpdater({ isGpsOn, myGeoLocation }) {
   return null;
 }
 
-// Routing control component
-function RoutingControl({ sourceLat, sourceLon, destLat, destLon }) {
-  const map = useMap();
-  const routingRef = useRef(null);
 
-  useEffect(() => {
-    if (!map || !sourceLat || !sourceLon || !destLat || !destLon) return;
-
-    // Create new route
-    const control = L.Routing.control({
-      waypoints: [
-        L.latLng(sourceLat, sourceLon),
-        L.latLng(destLat, destLon)
-      ],
-      routeWhileDragging: false,
-      addWaypoints: false,
-      fitSelectedRoutes: true,
-      showAlternatives: false,
-      position: "bottomleft",
-      createMarker: () => null,
-      lineOptions: {
-        styles: [
-          { color: "#4285F4", opacity: 0.9, weight: 6 },
-          { color: "#1a73e8", opacity: 0.4, weight: 10 }
-        ]
-      }
-    }).addTo(map);
-
-    // Patch internal _clearLines to prevent crash when async OSRM response
-    // arrives after the control has been removed from the map
-    const origClearLines = control._clearLines;
-    control._clearLines = function () {
-      try {
-        if (this._map) {
-          origClearLines.call(this);
-        }
-      } catch (e) {
-        // Silently ignore
-      }
-    };
-
-    routingRef.current = control;
-
-    // Cleanup
-    return () => {
-      try {
-        if (routingRef.current) {
-          routingRef.current.setWaypoints([]);
-          map.removeControl(routingRef.current);
-          routingRef.current = null;
-        }
-      } catch (e) {
-        // Safely ignore if map is already destroyed
-      }
-    };
-  }, [map, sourceLat, sourceLon, destLat, destLon]);
-
-  return null;
-}
-
-function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
+function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId, destination, setDestination, allowSelection = true }) {
   const [signals, setSignals] = useState([]);
   const [ambulances, setAmbulances] = useState([]);
-  const [destination, setDestination] = useState(null);
 
   // Default center point when loading
   const defaultCenter = [11.916242, 79.809547];
@@ -169,8 +108,19 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
   // Load traffic signals
   useEffect(() => {
     getSignals()
-      .then((res) => setSignals(res.data))
-      .catch((err) => console.error(err));
+      .then((res) => {
+        // Safety check: Ensure res.data is an array
+        if (Array.isArray(res.data)) {
+          setSignals(res.data);
+        } else {
+          console.error("TrafficSignals API returned non-array data:", res.data);
+          setSignals([]);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load traffic signals:", err);
+        setSignals([]);
+      });
   }, []);
 
   // Fetch all live ambulances and handle the proper active state
@@ -178,12 +128,16 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
     const fetchAmbulances = () => {
       getAllLocations()
         .then((res) => {
+          if (!Array.isArray(res.data)) {
+            console.error("Ambulance locations API returned non-array data:", res.data);
+            return;
+          }
           const now = new Date();
           const latestMap = new Map();
 
           res.data.forEach((amb) => {
-            const timeStr = (amb.updatedTime && !amb.updatedTime.includes("Z") && !amb.updatedTime.includes("+")) 
-              ? amb.updatedTime + "Z" 
+            const timeStr = (amb.updatedTime && !amb.updatedTime.includes("Z") && !amb.updatedTime.includes("+"))
+              ? amb.updatedTime + "Z"
               : amb.updatedTime;
             const updatedTime = new Date(timeStr);
             const isOnline = (now - updatedTime) < 30000;
@@ -220,7 +174,9 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
 
           <MapUpdater isGpsOn={isGpsOn} myGeoLocation={myGeoLocation} />
 
-          <MapClickMarker destination={destination} onSelectHospital={handleHospitalSelect} />
+          {allowSelection && (
+            <MapClickMarker destination={destination} onSelectHospital={handleHospitalSelect} />
+          )}
 
           {(() => {
             const myAmbulance = ambulances.find((amb) => amb.vehicleNumber === myDeviceId);
@@ -257,15 +213,15 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
                   <br />
                   {isGpsOn ? "📡 Live Accuracy Mode" : (myAmb?.isOnline ? "🕐 Active (Reporting from DB)" : "📵 Offline (Last reported position)")}
                   <br />
-                  Speed: {( (isGpsOn && myGeoLocation ? myGeoLocation.speed : (myAmb ? myAmb.speed : 0)) * 3.6).toFixed(1)} km/h
+                  Speed: {((isGpsOn && myGeoLocation ? myGeoLocation.speed : (myAmb ? myAmb.speed : 0)) * 3.6).toFixed(1)} km/h
                 </Popup>
               </Marker>
             );
           })()}
 
-          {/* Show Other Ambulances */}
-          {ambulances
-            .filter((amb) => amb.vehicleNumber !== myDeviceId)
+          {/* Show Other Ambulances - Only show online ones */}
+          {Array.isArray(ambulances) && ambulances
+            .filter((amb) => amb.vehicleNumber !== myDeviceId && amb.isOnline)
             .map((amb) => (
               <Marker
                 key={amb.vehicleNumber}
@@ -279,13 +235,19 @@ function MapView({ isGpsOn, setIsGpsOn, myGeoLocation, myDeviceId }) {
                   🚑 <strong>{amb.vehicleNumber}</strong>
                   <br />
                   Speed: {(Number(amb.speed) * 3.6).toFixed(1)} km/h
+                  {amb.destinationName && (
+                    <>
+                      <br />
+                      🏥 <strong>To: {amb.destinationName}</strong>
+                    </>
+                  )}
                   <br />
                   {amb.isOnline ? "🕐 Active" : "📵 Offline (Last seen)"}
                 </Popup>
               </Marker>
             ))}
 
-          {signals.map((signal) => (
+          {Array.isArray(signals) && signals.map((signal) => (
             <Marker
               key={`sig-${signal.id}`}
               position={[signal.latitude, signal.longitude]}

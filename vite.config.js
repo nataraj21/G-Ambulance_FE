@@ -10,12 +10,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5049',
+        target: 'http://localhost:50300',
         changeOrigin: true,
         secure: false,  // Allow self-signed cert on localhost
       },
       '/TrafficSignals': {
-        target: 'http://localhost:5049',
+        target: 'http://localhost:50300',
         changeOrigin: true,
         secure: false,
       },
